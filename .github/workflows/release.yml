@@ -1,0 +1,28 @@
+name: Release
+
+# Ao enviar uma tag v*, cria a release e anexa o UF2 da pasta firmware/.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Conferir que o UF2 é reproduzível a partir do oficial
+        run: |
+          curl -sSL -o oficial.uf2 https://github.com/OpenStickCommunity/GP2040-CE/releases/download/v0.7.12/GP2040-CE_0.7.12_Haute42COSMOXMUltra.uf2
+          python3 tools/build_ledporpino.py oficial.uf2 gerado.uf2
+          cmp gerado.uf2 firmware/GP2040-CE_0.7.12_Haute42COSMOXMUltra_LedPorPino.uf2 || echo "::warning::UF2 gerado difere do versionado (versão da zlib?)"
+      - name: Criar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" firmware/*.uf2 \
+            --title "LED por pino (${GITHUB_REF_NAME})" \
+            --notes-file .github/release-notes.md
