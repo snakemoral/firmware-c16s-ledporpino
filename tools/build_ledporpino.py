@@ -19,7 +19,11 @@ O que o patch faz (só biblioteca padrão do Python, nada é recompilado):
    de LEDs fixo de que o patch precisa. O JS novo vai para o fim da imagem e a
    entrada do arquivo na tabela do lwIP (fsdata) passa a apontar para ele.
 
-Uso: python3 build_ledporpino.py <uf2 oficial> [uf2 de saída]
+3. Opcional (--switchpro-1ms), experimental: no modo Switch Pro, o controle
+   pede ao host leitura a cada 1 ms (em vez de 8 ms) e envia o relatório assim
+   que um botão muda, sem esperar 5 ms desde o anterior.
+
+Uso: python3 build_ledporpino.py <uf2 oficial> [uf2 de saída] [--switchpro-1ms]
 """
 import hashlib
 import os
@@ -37,6 +41,14 @@ FS_ROOT = 0xB26D4            # primeiro struct fsdata_file (lista ligada do lwIP
 JS_NAME = b"/assets/index-6038cec7.js"
 HOOK = 0x5DB20               # ldrb r3,[r2,#4]; ldr r2,[r2,#8]; lsls r3,#16; orrs r3,r2
 HOOK_ORIG = bytes.fromhex("137992681b041343")
+
+# --- modo Switch Pro (opcional, --switchpro-1ms) ---------------------------
+# switch_pro_configuration_descriptor: bInterval do endpoint IN e do OUT (8 ms)
+SWPRO_BINTERVAL = [0xA8834 + 33, 0xA8834 + 40]
+# SwitchProDriver::process: "if ((now - last_report_timer) > 5)" antes de enviar
+# um relatório de entrada novo. Em 0x1000DB3A: cmp r3,#5 ; bls (pula o envio).
+SWPRO_THROTTLE = 0xDB3A
+SWPRO_THROTTLE_ORIG = bytes.fromhex("052bebd9")
 
 # --- fita de LED: posição na fita -> pino do botão físico --------------------
 STRIP_PINS = [5, 3, 4, 2, 10, 11, 12, 13, 6, 7, 8, 9, 27, 18, 19, 26]
@@ -129,7 +141,18 @@ def patch_js(js):
     return js
 
 
-def build(official):
+def patch_switchpro_1ms(img):
+    """Modo Switch Pro: pede leitura a cada 1 ms e envia o relatório assim que muda."""
+    for off in SWPRO_BINTERVAL:
+        if img[off] != 0x08:
+            sys.exit("descritor do Switch Pro não é o esperado")
+        img[off] = 0x01
+    if bytes(img[SWPRO_THROTTLE:SWPRO_THROTTLE + 4]) != SWPRO_THROTTLE_ORIG:
+        sys.exit("código do Switch Pro não é o esperado")
+    img[SWPRO_THROTTLE + 2:SWPRO_THROTTLE + 4] = bytes.fromhex("00bf")  # bls -> nop
+
+
+def build(official, switchpro_1ms=False):
     img = uf2_to_image(official)
     orig_len = len(img)
 
@@ -152,18 +175,24 @@ def build(official):
         sys.exit("código no ponto de desvio não é o esperado")
     img[HOOK:HOOK + 8] = thumb_bl(BASE + HOOK, BASE + cave) + bytes.fromhex("00bf00bf")  # bl cave; nop; nop
 
+    if switchpro_1ms:
+        patch_switchpro_1ms(img)
+
     img += b"\xff" * (-len(img) % 256)
     return img
 
 
 def main():
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    switchpro_1ms = "--switchpro-1ms" in sys.argv[1:]
+    if not args:
         sys.exit(__doc__)
-    official = open(sys.argv[1], "rb").read()
+    official = open(args[0], "rb").read()
     if hashlib.sha256(official).hexdigest() != OFFICIAL_SHA256:
         sys.exit("O UF2 de entrada não é o GP2040-CE_0.7.12_Haute42COSMOXMUltra.uf2 oficial (sha256 diferente).")
-    out_path = sys.argv[2] if len(sys.argv) > 2 else "GP2040-CE_0.7.12_Haute42COSMOXMUltra_LedPorPino.uf2"
-    img = build(official)
+    default = "GP2040-CE_0.7.12_Haute42COSMOXMUltra_LedPorPino%s.uf2" % ("_SwitchPro1ms" if switchpro_1ms else "")
+    out_path = args[1] if len(args) > 1 else default
+    img = build(official, switchpro_1ms)
     uf2 = image_to_uf2(img)
     open(out_path, "wb").write(uf2)
     print("gerado %s (%.1f KB de flash usados, sha256 %s)" % (out_path, len(img) / 1024, hashlib.sha256(uf2).hexdigest()))

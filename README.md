@@ -37,6 +37,19 @@ Ordem dos LEDs na fita, por pino:
 
 Para voltar atrás, grave de novo o UF2 oficial do GP2040-CE pelo BOOTSEL.
 
+## Versão experimental: Switch Pro 1 ms
+
+O arquivo [`firmware/GP2040-CE_0.7.12_Haute42COSMOXMUltra_LedPorPino_SwitchPro1ms.uf2`](firmware/GP2040-CE_0.7.12_Haute42COSMOXMUltra_LedPorPino_SwitchPro1ms.uf2) é igual ao principal, com duas mudanças só no modo **Switch Pro**:
+
+- O controle pede ao host leitura a cada **1 ms**, em vez dos 8 ms do Pro Controller original.
+- O relatório é enviado assim que um botão muda, sem esperar 5 ms desde o anterior.
+
+No firmware oficial, esse modo pode atrasar um aperto em até cerca de 8 ms (espera pela próxima leitura de 8 ms, somada à trava de 5 ms). Os outros modos, inclusive XInput, já usam 1 ms e não mudam.
+
+É experimental: o console pode ignorar o pedido de 1 ms e continuar lendo a cada 8 ms (nesse caso sobra só o ganho da trava), ou, no pior caso, estranhar o controle nesse modo. No PC (Steam e afins) o ganho é garantido. Se algo der errado, volte para o UF2 principal.
+
+Para gerar: `python3 tools/build_ledporpino.py GP2040-CE_0.7.12_Haute42COSMOXMUltra.uf2 --switchpro-1ms` (SHA-256 `d3622d2b26ebf5706486524e7ef63e5ae65ce6f8149e992d9bdb6db20e9c5fcf`).
+
 ## Limitações
 
 - A ordem da fita está fixa no código para esta placa. Não serve para outras placas.
